@@ -1,0 +1,82 @@
+***************
+*** 22,39 ****
+  #include <linux/io.h>
+  #include <linux/of.h>
+  #include <linux/of_address.h>
+  
+  #include <asm/cacheflush.h>
+  #include <asm/hardware/cache-l2x0.h>
+  #include "cache-tauros3.h"
+  #include "cache-aurora-l2.h"
+  
+  #define CACHE_LINE_SIZE		32
+  
+  static void __iomem *l2x0_base;
+- static DEFINE_RAW_SPINLOCK(l2x0_lock);
+  static u32 l2x0_way_mask;	/* Bitmask of active ways */
+  static u32 l2x0_size;
+  static unsigned long sync_reg_offset = L2X0_CACHE_SYNC;
+  
+  /* Aurora don't have the cache ID register available, so we have to
+--- 22,50 ----
+  #include <linux/io.h>
+  #include <linux/of.h>
+  #include <linux/of_address.h>
++ #include <linux/ipipe.h>
+  
+  #include <asm/cacheflush.h>
+  #include <asm/hardware/cache-l2x0.h>
+  #include "cache-tauros3.h"
+  #include "cache-aurora-l2.h"
+  
++ #ifndef CONFIG_IPIPE
++ int l2x0_wa = 1;
++ #define SPINLOCK_SECTION_LEN	4096UL
++ #else /* CONFIG_IPIPE */
++ int l2x0_wa = 0;
++ #define SPINLOCK_SECTION_LEN	512UL
++ #endif /* CONFIG_IPIPE */
++ 
+  #define CACHE_LINE_SIZE		32
+  
+  static void __iomem *l2x0_base;
++ static IPIPE_DEFINE_RAW_SPINLOCK(l2x0_lock);
+  static u32 l2x0_way_mask;	/* Bitmask of active ways */
+  static u32 l2x0_size;
++ static u32 l2x0_ways;
++ static u32 l2x0_lines;
+  static unsigned long sync_reg_offset = L2X0_CACHE_SYNC;
+  
+  /* Aurora don't have the cache ID register available, so we have to
+***************
+*** 416,421 ****
+  	}
+  
+  	l2x0_way_mask = (1 << ways) - 1;
+  
+  	/*
+  	 * L2 cache Size =  Way size * Number of ways
+--- 478,484 ----
+  	}
+  
+  	l2x0_way_mask = (1 << ways) - 1;
++ 	l2x0_ways = ways;
+  
+  	/*
+  	 * L2 cache Size =  Way size * Number of ways
+***************
+*** 424,429 ****
+  	way_size = 1 << (way_size + way_size_shift);
+  
+  	l2x0_size = ways * way_size * SZ_1K;
+  
+  	/*
+  	 * Check if l2x0 controller is already enabled.
+--- 487,493 ----
+  	way_size = 1 << (way_size + way_size_shift);
+  
+  	l2x0_size = ways * way_size * SZ_1K;
++ 	l2x0_lines = way_size * SZ_1K / CACHE_LINE_SIZE;
+  
+  	/*
+  	 * Check if l2x0 controller is already enabled.

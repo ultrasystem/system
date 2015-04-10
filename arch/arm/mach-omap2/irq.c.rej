@@ -1,0 +1,44 @@
+***************
+*** 81,100 ****
+  
+  /* INTC bank register get/set */
+  
+- static void intc_bank_write_reg(u32 val, struct omap_irq_bank *bank, u16 reg)
+  {
+  	__raw_writel(val, bank->base_reg + reg);
+  }
+  
+- static u32 intc_bank_read_reg(struct omap_irq_bank *bank, u16 reg)
+  {
+  	return __raw_readl(bank->base_reg + reg);
+  }
+  
+  /* XXX: FIQ and additional INTC support (only MPU at the moment) */
+- static void omap_ack_irq(struct irq_data *d)
+  {
+  	intc_bank_write_reg(0x1, &irq_banks[0], INTC_CONTROL);
+  }
+  
+  static void omap_mask_ack_irq(struct irq_data *d)
+--- 89,109 ----
+  
+  /* INTC bank register get/set */
+  
++ static inline_single void intc_bank_write_reg(u32 val, struct omap_irq_bank *bank, u16 reg)
+  {
+  	__raw_writel(val, bank->base_reg + reg);
+  }
+  
++ static inline_single u32 intc_bank_read_reg(struct omap_irq_bank *bank, u16 reg)
+  {
+  	return __raw_readl(bank->base_reg + reg);
+  }
+  
+  /* XXX: FIQ and additional INTC support (only MPU at the moment) */
++ static inline_single void omap_ack_irq(struct irq_data *d)
+  {
+  	intc_bank_write_reg(0x1, &irq_banks[0], INTC_CONTROL);
++ 	dsb();
+  }
+  
+  static void omap_mask_ack_irq(struct irq_data *d)

@@ -42,7 +42,7 @@
 #define ASID_FIRST_VERSION	(1ULL << ASID_BITS)
 #define NUM_USER_ASIDS		ASID_FIRST_VERSION
 
-static DEFINE_RAW_SPINLOCK(cpu_asid_lock);
+static IPIPE_DEFINE_RAW_SPINLOCK(cpu_asid_lock);
 static atomic64_t asid_generation = ATOMIC64_INIT(ASID_FIRST_VERSION);
 static DECLARE_BITMAP(asid_map, NUM_USER_ASIDS);
 
@@ -144,21 +144,17 @@ static void flush_context(unsigned int cpu)
 	/* Update the list of reserved ASIDs and the ASID bitmap. */
 	bitmap_clear(asid_map, 0, NUM_USER_ASIDS);
 	for_each_possible_cpu(i) {
-		if (i == cpu) {
-			asid = 0;
-		} else {
-			asid = atomic64_xchg(&per_cpu(active_asids, i), 0);
-			/*
-			 * If this CPU has already been through a
-			 * rollover, but hasn't run another task in
-			 * the meantime, we must preserve its reserved
-			 * ASID, as this is the only trace we have of
-			 * the process it is still running.
-			 */
-			if (asid == 0)
-				asid = per_cpu(reserved_asids, i);
-			__set_bit(asid & ~ASID_MASK, asid_map);
-		}
+		asid = atomic64_xchg(&per_cpu(active_asids, i), 0);
+		/*
+		 * If this CPU has already been through a
+		 * rollover, but hasn't run another task in
+		 * the meantime, we must preserve its reserved
+		 * ASID, as this is the only trace we have of
+		 * the process it is still running.
+		 */
+		if (asid == 0)
+			asid = per_cpu(reserved_asids, i);
+		__set_bit(asid & ~ASID_MASK, asid_map);
 		per_cpu(reserved_asids, i) = asid;
 	}
 
@@ -217,15 +213,18 @@ static u64 new_context(struct mm_struct *mm, unsigned int cpu)
 	return asid;
 }
 
-void check_and_switch_context(struct mm_struct *mm, struct task_struct *tsk)
+int check_and_switch_context(struct mm_struct *mm, struct task_struct *tsk, bool root_p)
 {
 	unsigned long flags;
-	unsigned int cpu = smp_processor_id();
+	unsigned int cpu = ipipe_processor_id();
 	u64 asid;
 
 	if (unlikely(mm->context.vmalloc_seq != init_mm.context.vmalloc_seq))
 		__check_vmalloc_seq(mm);
 
+#ifdef CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH
+	flags = hard_local_irq_save();
+#endif /* CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
 	/*
 	 * We cannot update the pgd and the ASID atomicly with classic
 	 * MMU, so switch exclusively to global mappings to avoid
@@ -238,7 +237,11 @@ void check_and_switch_context(struct mm_struct *mm, struct task_struct *tsk)
 	    && atomic64_xchg(&per_cpu(active_asids, cpu), asid))
 		goto switch_mm_fastpath;
 
+#ifdef CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH
+	raw_spin_lock(&cpu_asid_lock);
+#else /* !CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
 	raw_spin_lock_irqsave(&cpu_asid_lock, flags);
+#endif /* !CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
 	/* Check that our ASID belongs to the current generation. */
 	asid = atomic64_read(&mm->context.id);
 	if ((asid ^ atomic64_read(&asid_generation)) >> ASID_BITS) {
@@ -253,8 +256,17 @@ void check_and_switch_context(struct mm_struct *mm, struct task_struct *tsk)
 
 	atomic64_set(&per_cpu(active_asids, cpu), asid);
 	cpumask_set_cpu(cpu, mm_cpumask(mm));
+#ifdef CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH
+	raw_spin_unlock(&cpu_asid_lock);
+#else /* !CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
 	raw_spin_unlock_irqrestore(&cpu_asid_lock, flags);
+#endif /* CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
 
 switch_mm_fastpath:
-	cpu_switch_mm(mm->pgd, mm);
+	cpu_switch_mm(mm->pgd, mm, 1);
+#ifdef CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH
+	hard_local_irq_restore(flags);
+#endif /* CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
+
+	return 0;
 }

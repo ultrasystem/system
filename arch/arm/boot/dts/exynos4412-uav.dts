@@ -16,8 +16,8 @@
 #include "exynos4412-uav-common.dtsi"
 
 / {
-	model = "Hardkernel ODROID-X board based on Exynos4412";
-	compatible = "hardkernel,odroid-x", "samsung,exynos4412", "samsung,exynos4";
+	model = "Seeker UAV Autopilot board";
+	compatible = "seeker,autopilot", "samsung,exynos4412", "samsung,exynos4";
 
 	cpus {
 		cpu@a00 {

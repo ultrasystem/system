@@ -18,6 +18,7 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <asm/mach/irq.h>
+#include <linux/ipipe.h>
 
 #include "irqchip.h"
 
@@ -27,7 +28,7 @@
 
 #define IRQ_IN_COMBINER		8
 
-static DEFINE_SPINLOCK(irq_controller_lock);
+static IPIPE_DEFINE_SPINLOCK(irq_controller_lock);
 
 struct combiner_chip_data {
 	unsigned int hwirq_offset;
@@ -83,7 +84,7 @@ static void combiner_handle_cascade_irq(unsigned int irq, struct irq_desc *desc)
 	if (unlikely(!cascade_irq))
 		do_bad_IRQ(irq, desc);
 	else
-		generic_handle_irq(cascade_irq);
+		ipipe_handle_demuxed_irq(cascade_irq);
 
  out:
 	chained_irq_exit(chip, desc);
